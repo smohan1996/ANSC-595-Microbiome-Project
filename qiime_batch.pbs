@@ -1,0 +1,125 @@
+#!/bin/sh -l
+
+#PBS -l nodes=1:ppn=10
+#PBS -l walltime=14:00:00
+#PBS -N qiime_batch
+#PBS -q microbiome
+#PBS -M mohan18@purdue.edu
+#PBS -m bae
+
+
+cd /depot/microbiome/data/mohan18/BetaGlucanProject/qiime/qiime_with_mothur_data
+pwd
+
+#Load Modules
+
+module load bioinfo 
+module load Qiime/2-2019.1
+
+date +"%d %B %Y %H:%M:%S"
+
+echo "Denoising Step"
+qiime dada2 denoise-paired \
+  --i-demultiplexed-seqs data/qiime_out/demux-paired-end.qza \
+  --p-trim-left-f 13 \
+  --p-trim-left-r 13 \
+  --p-trunc-len-f 248 \
+  --p-trunc-len-r 154 \
+  --o-table data/qiime_out/table.qza \
+  --o-representative-sequences data/qiime_out/rep-seqs.qza \
+  --o-denoising-stats data/qiime_out/denoising-stats.qza
+
+echo "Summarizing Feature Table and Feature Sequences "
+qiime feature-table summarize \
+  --i-table data/qiime_out/table.qza \
+  --o-visualization data/qiime_out/table.qzv \
+  --m-sample-metadata-file data/references/stability_sample-metadata.txt
+
+qiime feature-table tabulate-seqs \
+  --i-data data/qiime_out/rep-seqs.qza \
+  --o-visualization data/qiime_out/rep-seqs.qzv
+
+echo "Visualizing Denoising Stats"
+qiime metadata tabulate \
+  --m-input-file data/qiime_out/denoising-stats.qza \
+  --o-visualization data/qiime_out/denoising-stats.qzv
+
+echo "Generating a tree for phylogenetic diversity analyses"
+qiime phylogeny align-to-tree-mafft-fasttree \
+  --i-sequences data/qiime_out/rep-seqs.qza \
+  --o-alignment data/qiime_out/aligned-rep-seqs.qza \
+  --o-masked-alignment data/qiime_out/masked-aligned-rep-seqs.qza \
+  --o-tree data/qiime_out/unrooted-tree.qza \
+  --o-rooted-tree data/qiime_out/rooted-tree.qza
+
+echo "Alpha Rarefaction Curves"
+
+qiime diversity alpha-rarefaction \
+  --i-table data/qiime_out/table.qza \
+  --i-phylogeny data/qiime_outrooted-tree.qza \
+  --p-max-depth 24807 \
+  --m-metadata-file data/references/stability_sample-metadata.txt \
+  --o-visualization data/qiime_out/rarefaction.qzv
+echo "Alpha and Beta Diversity Analysis"
+
+qiime diversity core-metrics-phylogenetic \
+  --i-phylogeny rooted-tree.qza \
+  --i-table table.qza \
+  --p-sampling-depth 8796 \
+  --m-metadata-file ../references/stability_sample-metadata.txt \
+  --output-dir core-metrics-results
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity core-metrics-results/faith_pd_vector.qza \
+  --m-metadata-file data/references/stability_sample-metadata.txt \
+  --o-visualization core-metrics-results/faith-pd-group-significance.qzv
+
+qiime diversity alpha-group-significance \
+  --i-alpha-diversity core-metrics-results/evenness_vector.qza \
+  --m-metadata-file data/references/stability_sample-metadata.txt \
+  --o-visualization core-metrics-results/evenness-group-significance.qzv
+
+qiime diversity beta-group-significance \
+  --i-distance-matrix core-metrics-results/unweighted_unifrac_distance_matrix.qza \
+  --m-metadata-file data/references/stability_sample-metadata.txt \
+  --m-metadata-column diet \
+  --o-visualization core-metrics-results/unweighted-unifrac-time-significance.qzv \
+  --p-pairwise
+
+ qiime diversity beta-group-significance \
+  --i-distance-matrix core-metrics-results/weighted_unifrac_distance_matrix.qza \
+  --m-metadata-file data/references/stability_sample-metadata.txt \
+  --m-metadata-column Diet \
+  --o-visualization core-metrics-results/weighted-unifrac-time-significance.qzv \
+  --p-pairwise
+
+echo "Taxonomic Analysis"
+
+ qiime feature-classifier classify-sklearn \
+  --i-classifier data/references/silva-132-99-515-806-nb-classifier.qza \
+  --i-reads data/qiime_out/rep-seqs.qza  \
+  --o-classification data/qiime_out/taxonomy_silva.qza
+
+qiime metadata tabulate \
+  --m-input-file data/qiime_out/taxonomy_silva.qza \
+  --o-visualization data/qiime_out/taxonomy_silva.qzv
+
+qiime taxa barplot \
+  --i-table data/qiime_out/table.qza \
+  --i-taxonomy data/qiime_out/taxonomy.qza \
+  --m-metadata-file data/references/stability_sample-metadata.txt \
+  --o-visualization data/qiime_out/taxa-bar-plots.qzv
+
+echo "ANCOM Analysis"
+
+qiime composition add-pseudocount \
+  --i-table data/qiime_out/table.qza \
+  --o-composition-table data/qiime_out/comp-table.qza
+
+ qiime composition ancom \
+  --i-table data/qiime_out/comp-table.qza \
+  --m-metadata-file data/references/stability_sample-metadata.txt \
+  --m-metadata-column Diet \
+  --o-visualization data/qiime_out/ancom-time.qzv
+
+date +"%d %B %Y %H:%M:%S"
